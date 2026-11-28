@@ -46,7 +46,7 @@ func TestSelectFileClipboardFailuresNeverReportSuccess(t *testing.T) {
 		{name: "clipboard read fails", getError: true, want: "synthetic clipboard failure", typed: 0, clipboard: "prior"},
 		{name: "clipboard staging fails", setError: true, want: "synthetic clipboard failure", typed: 0, clipboard: "prior"},
 		{name: "first typing fails and clipboard restored", typeError: true, want: "synthetic typing failure", typed: 1, clipboard: "prior"},
-		{name: "clipboard restore failure reported", restoreError: true, want: "restore clipboard", typed: 2, clipboard: file},
+		{name: "clipboard restore failure reported", restoreError: true, want: "restore clipboard", typed: 4, clipboard: file},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -54,7 +54,7 @@ func TestSelectFileClipboardFailuresNeverReportSuccess(t *testing.T) {
 			if tc.typeError {
 				in.Err = errors.New("synthetic typing failure")
 			}
-			mgr := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-1", Title: "File Upload", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", Active: true}}, {}}}
+			mgr := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {}}}
 			cb := &pftest.Clipboard{Text: "prior"}
 			if tc.getError {
 				cb.GetErr = failure

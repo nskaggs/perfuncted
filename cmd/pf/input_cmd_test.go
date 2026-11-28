@@ -1299,7 +1299,7 @@ func TestFilePickerStopsOnMissingTargetOrFailedActivation(t *testing.T) {
 		wantError error
 	}{
 		{name: "missing target", manager: &pftest.Manager{Lists: [][]window.Info{{}}}, wantError: window.ErrWindowNotFound},
-		{name: "activation rejected", manager: &syntheticPickerActivationFailure{Manager: &pftest.Manager{Lists: [][]window.Info{{{NativeID: "chooser", Title: "File Upload", Active: true}}}}, failure: failure}, wantError: failure},
+		{name: "activation rejected", manager: &syntheticPickerActivationFailure{Manager: &pftest.Manager{Lists: [][]window.Info{{{NativeID: "chooser", Title: "File Upload", AppID: "chooser", Active: true}}}}, failure: failure}, wantError: failure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := &pftest.Inputter{}
@@ -1434,5 +1434,107 @@ func TestKeyboardTextReaderRejectsInvalidBeforeDispatch(t *testing.T) {
 		if got, err := readKeyboardText(strings.NewReader(text), nil, true); err != nil || got != text {
 			t.Fatalf("got=%q err=%v", got, err)
 		}
+	}
+}
+
+type chooserObservingInput struct {
+	*pftest.Inputter
+	after func(string)
+}
+
+func (i *chooserObservingInput) Type(ctx context.Context, s string) error {
+	err := i.Inputter.Type(ctx, s)
+	if err == nil && i.after != nil {
+		i.after(s)
+	}
+	return err
+}
+
+func TestGuardedFileChooserDoesNotDispatchToAnotherWindow(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "fixture.txt")
+	if err := os.WriteFile(file, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	info := window.Info{NativeID: "chooser", Title: "File Upload", AppID: "chooser", PID: 55, Active: true}
+	inactive := info
+	inactive.Active = false
+	replaced := info
+	replaced.PID++
+	cases := []struct {
+		name            string
+		observations    [][]window.Info
+		changeClipboard bool
+		wantCalls       int
+		wantError       bool
+		wantClipboard   string
+	}{
+		{"focus stolen before paste", [][]window.Info{{info}, {info}, {info}, {info}, {info}, {inactive}}, false, 1, true, "prior"},
+		{"identity changed before paste", [][]window.Info{{info}, {info}, {info}, {info}, {info}, {replaced}}, false, 1, true, "prior"},
+		{"first enter closes dialog", [][]window.Info{{info}, {info}, {info}, {info}, {info}, {info}, {info}, {}}, false, 3, false, "prior"},
+		{"focus stolen after first enter", [][]window.Info{{info}, {info}, {info}, {info}, {info}, {info}, {info}, {inactive}}, false, 3, true, "prior"},
+		{"clipboard changed before paste", [][]window.Info{{info}}, true, 1, true, "new owner"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clipboard := &pftest.Clipboard{Text: "prior"}
+			in := &chooserObservingInput{Inputter: &pftest.Inputter{}}
+			if tc.changeClipboard {
+				in.after = func(s string) {
+					if s == "{ctrl+l}" {
+						clipboard.Text = "new owner"
+					}
+				}
+			}
+			mgr := &pftest.Manager{Lists: tc.observations}
+			opener := func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, in, mgr, clipboard), nil }
+			cmd := inputCmd(opener, nil, nil, nil, opener)
+			cmd.SetArgs([]string{"select-file", "--id", "chooser", "--path", file})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			cmd.SilenceErrors = true
+			cmd.SilenceUsage = true
+			err := cmd.ExecuteContext(context.Background())
+			if (err != nil) != tc.wantError || len(in.Calls) != tc.wantCalls || clipboard.Text != tc.wantClipboard || len(mgr.Activated) != 1 {
+				t.Fatalf("error=%v calls=%v clipboard=%q activations=%v", err, in.Calls, clipboard.Text, mgr.Activated)
+			}
+		})
+	}
+}
+
+type chooserClipboardChangeOnRead struct {
+	*pftest.Manager
+	clipboard *pftest.Clipboard
+	reads     int
+}
+
+func (m *chooserClipboardChangeOnRead) InfoByID(ctx context.Context, id string) (window.Info, error) {
+	m.reads++
+	if m.reads == 3 {
+		m.clipboard.Text = "new clipboard before staging"
+	}
+	return m.Manager.InfoByID(ctx, id)
+}
+
+func TestFileChooserCapturesClipboardAfterFinalFocusObservation(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "fixture.txt")
+	if err := os.WriteFile(file, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	info := window.Info{NativeID: "chooser", Title: "File Upload", AppID: "chooser", PID: 55, Active: true}
+	cb := &pftest.Clipboard{Text: "old clipboard"}
+	mgr := &chooserClipboardChangeOnRead{Manager: &pftest.Manager{Lists: [][]window.Info{{info}, {info}, {info}, {info}, {info}, {info}, {info}, {}}}, clipboard: cb}
+	in := &pftest.Inputter{}
+	opener := func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, in, mgr, cb), nil }
+	cmd := inputCmd(opener, nil, nil, nil, opener)
+	cmd.SetArgs([]string{"select-file", "--id", "chooser", "--path", file})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if cb.Text != "new clipboard before staging" {
+		t.Fatalf("restored stale clipboard: %q", cb.Text)
 	}
 }

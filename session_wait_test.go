@@ -1292,3 +1292,30 @@ func TestAccessibilityWaitRebindsToReopenedBackendBeforeWaking(t *testing.T) {
 		t.Fatalf("wait evidence = %+v, want event from reopened backend", result.evidence)
 	}
 }
+
+type lateCanceledClosureManager struct {
+	*handleWindowManager
+	cancel context.CancelFunc
+}
+
+func (m *lateCanceledClosureManager) InfoByID(context.Context, string) (window.Info, error) {
+	m.cancel()
+	return window.Info{}, window.ErrWindowNotFound
+}
+
+func TestWindowClosedRejectsCanceledDisappearanceAndBlankID(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager := &lateCanceledClosureManager{handleWindowManager: newHandleWindowManager(), cancel: cancel}
+	session := newSessionForTesting(nil, nil, manager, nil, nil)
+	defer session.Close()
+	target := &windowState{id: WindowID{session: session, native: "opaque"}}
+	proof, err := windowClosed(target).evaluate(ctx, session)
+	if proof || !errors.Is(err, context.Canceled) {
+		t.Fatalf("late canceled lookup reported closure: proof=%v err=%v", proof, err)
+	}
+	invalid := &windowState{id: WindowID{session: session}}
+	if err := invalid.WaitClosed(context.Background()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("blank native ID accepted: %v", err)
+	}
+}

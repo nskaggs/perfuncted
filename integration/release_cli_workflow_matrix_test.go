@@ -110,7 +110,7 @@ func TestReleaseCLIWorkflowMatrix(t *testing.T) {
 		}
 		// Exercise standalone literal typing before the editor's save-time
 		// newline normalization can move the caret to a new line.
-		run("", "input", "sendkeys", "{enter}")
+		run("", "input", "type", "{enter}", "--window-id", target.ID().String())
 		outPath := filepath.Join(t.TempDir(), "captured.png")
 		script := filepath.Join(t.TempDir(), "workflow.pf")
 		lines := []string{"window select " + app.winMatch, "window activate", "input type ScriptSuffix", "input sendkeys {ctrl+s}", "screen grab --rect 10,20,42,44 --out " + outPath}

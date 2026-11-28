@@ -583,7 +583,7 @@ func inputCmd(
 
 	var fileTargetID, fileTargetTitle, filePath string
 	var confirmFile bool
-	selectFile := &cobra.Command{Use: "select-file", Short: "Select a local file in an existing native file picker, preserving clipboard", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) (retErr error) {
+	selectFile := &cobra.Command{Use: "select-file", Short: "Select a local file in an existing native file picker, preserving clipboard", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if (fileTargetID == "") == (fileTargetTitle == "") {
 			return fmt.Errorf("specify exactly one of --id or --title for the open file chooser")
 		}
@@ -610,12 +610,19 @@ func inputCmd(
 		defer pf.Close()
 		var target *perfuncted.Window
 		if fileTargetID != "" {
-			target, err = findWindowByStableID(cmd.Context(), pf.Windows(), fileTargetID)
+			target, err = resolveWindowID(cmd.Context(), pf.Windows(), fileTargetID, true)
 		} else {
 			target, err = findWindowByTitle(cmd.Context(), pf.Windows(), fileTargetTitle)
 		}
 		if err != nil {
 			return err
+		}
+		info := target.CachedInfo()
+		if info.PID == 0 && info.AppID == "" && info.Class == "" {
+			return fmt.Errorf("file chooser lacks independent identity: %w", perfuncted.ErrUnsupported)
+		}
+		if _, infoErr := target.WithContext(cmd.Context()).Info(); infoErr != nil {
+			return infoErr
 		}
 		if activateErr := target.WithContext(cmd.Context()).Activate(); activateErr != nil {
 			return activateErr
@@ -623,43 +630,8 @@ func inputCmd(
 		if waitErr := waitWindowActive(cmd.Context(), target, 2*time.Second, 50*time.Millisecond); waitErr != nil {
 			return waitErr
 		}
-		prev, err := pf.Clipboard().WithContext(cmd.Context()).Get()
-		if err != nil {
+		if err := selectFileGuarded(cmd.Context(), pf, target, filePath, confirmFile); err != nil {
 			return err
-		}
-		if err := pf.Clipboard().WithContext(cmd.Context()).Set(filePath); err != nil {
-			return err
-		}
-		restored := false
-		defer func() {
-			if !restored {
-				if restoreErr := pf.Clipboard().WithContext(context.WithoutCancel(cmd.Context())).Set(prev); restoreErr != nil {
-					retErr = errors.Join(retErr, fmt.Errorf("restore clipboard: %w", restoreErr))
-				}
-			}
-		}()
-		if err := pf.Input().WithContext(cmd.Context()).SendKeys("{ctrl+l}{ctrl+v}{enter}"); err != nil {
-			return err
-		}
-		if confirmFile {
-			// KDE and other choosers may first navigate into a directory and
-			// select the filename. The final Enter accepts the selected file.
-			if err := pf.Input().WithContext(cmd.Context()).SendKeys("{enter}"); err != nil {
-				return err
-			}
-		}
-		// Only restore clipboard after the chooser disappears: event dispatch
-		// alone does not prove that Ctrl+V has been processed.
-		if err := waitWindowGone(cmd.Context(), target, 10*time.Second, 75*time.Millisecond); err != nil {
-			return err
-		}
-		// A successful chooser operation also promises that the caller's
-		// clipboard has been restored. Do not print success before verifying
-		// restoration: a deferred failure would otherwise contradict stdout.
-		restoreErr := pf.Clipboard().WithContext(context.WithoutCancel(cmd.Context())).Set(prev)
-		restored = true
-		if restoreErr != nil {
-			return fmt.Errorf("restore clipboard: %w", restoreErr)
 		}
 		return writeCLIOutput(cmd.OutOrStdout(), "file chooser closed after selection: %s (not proof of cloud upload)\n", target.ID().String())
 	}}
@@ -995,4 +967,79 @@ func dispatchKeyboardText(ctx context.Context, pf *perfuncted.Session, title, id
 		return err
 	}
 	return target.WithContext(ctx).Do(step) //nolint:contextcheck // Scoped context is bound explicitly.
+}
+
+// selectFileGuarded never refocuses a chooser after initial activation. A
+// successful final observation confirms disappearance, not acceptance of a file.
+func selectFileGuarded(ctx context.Context, pf *perfuncted.Session, target *perfuncted.Window, path string, confirm bool) (result error) {
+	if err := checkChooserFocus(ctx, target); err != nil {
+		return err
+	}
+	previous, err := pf.Clipboard().WithContext(ctx).Get() //nolint:contextcheck // Scoped context.
+	if err != nil {
+		return err
+	}
+	// Cleanup also covers uncertain staging failures; never restore if a
+	// newer clipboard value has been observed. Clipboard has no atomic CAS.
+	defer func() { result = errors.Join(result, restoreChooserClipboard(ctx, pf, path, previous)) }()
+	if err := pf.Clipboard().WithContext(ctx).Set(path); err != nil { //nolint:contextcheck // Scoped context.
+		return err
+	}
+	for _, sequence := range []string{"{ctrl+l}", "{ctrl+v}", "{enter}"} {
+		if sequence == "{ctrl+v}" {
+			current, err := pf.Clipboard().WithContext(ctx).Get() //nolint:contextcheck // Scoped context.
+			if err != nil {
+				return err
+			}
+			if current != path {
+				return errors.New("file chooser clipboard changed before paste")
+			}
+		}
+		if err := checkChooserFocus(ctx, target); err != nil {
+			return err
+		}
+		if err := pf.Input().WithContext(ctx).SendKeys(sequence); err != nil { //nolint:contextcheck // Scoped context.
+			return err
+		}
+	}
+	if confirm {
+		err := checkChooserFocus(ctx, target)
+		switch {
+		case errors.Is(err, perfuncted.ErrWindowNotFound):
+			// First Enter may have already closed the chooser. Never send
+			// another Enter to whatever application now owns focus.
+		case err != nil:
+			return err
+		default:
+			if err := pf.Input().WithContext(ctx).SendKeys("{enter}"); err != nil { //nolint:contextcheck // Scoped context.
+				return err
+			}
+		}
+	}
+	return waitWindowGone(ctx, target, 10*time.Second, 75*time.Millisecond)
+}
+
+func checkChooserFocus(ctx context.Context, target *perfuncted.Window) error {
+	info, err := target.WithContext(ctx).Info() //nolint:contextcheck // Scoped context.
+	if err != nil {
+		return err
+	}
+	if !info.Active {
+		return perfuncted.ErrWindowFocusUnverified
+	}
+	return ctx.Err()
+}
+
+func restoreChooserClipboard(ctx context.Context, pf *perfuncted.Session, path, previous string) error {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	cb := pf.Clipboard().WithContext(cleanup)
+	current, err := cb.Get() //nolint:contextcheck // Bounded independent cleanup context.
+	if err == nil && current == path {
+		err = cb.Set(previous) //nolint:contextcheck // Bounded independent cleanup context.
+	}
+	if err != nil {
+		return fmt.Errorf("restore clipboard: %w", err)
+	}
+	return nil
 }

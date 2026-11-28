@@ -74,7 +74,7 @@ func TestFileChooserRestoresClipboardAfterSuccessAndInputFailure(t *testing.T) {
 			if fail {
 				in.Err = os.ErrPermission
 			}
-			mgr := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-1", Title: "File Upload", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", Active: true}}, {}}}
+			mgr := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: true}}, {}}}
 			cb := &pftest.Clipboard{Text: "prior clipboard"}
 			stdout, stderr, code := captureRunIO(t, []string{"input", "select-file", "--id", "dialog-1", "--path", file}, func(*cliConfig) sessionOpener {
 				return func(context.Context) (*perfuncted.Session, error) { return pftest.New(nil, in, mgr, cb), nil }
@@ -88,7 +88,7 @@ func TestFileChooserRestoresClipboardAfterSuccessAndInputFailure(t *testing.T) {
 			if len(mgr.Activated) != 1 || mgr.Activated[0] != "dialog-1" {
 				t.Errorf("wrong focused target: %v", mgr.Activated)
 			}
-			if !fail && len(in.Calls) != 2 {
+			if !fail && len(in.Calls) != 4 {
 				t.Errorf("expected enter selection + confirmation, calls=%v", in.Calls)
 			}
 		})
@@ -99,7 +99,7 @@ func TestFileChooserRefusesToTypeIntoUnfocusedWindow(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "test.epub")
 	_ = os.WriteFile(file, []byte("test"), 0600)
 	in := &pftest.Inputter{}
-	mgr := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-1", Title: "File Upload", Active: false}}}}
+	mgr := &pftest.Manager{Lists: [][]window.Info{{{NativeID: "dialog-1", Title: "File Upload", AppID: "chooser", Active: false}}}}
 	_, _, code := captureRunIO(t, []string{"input", "select-file", "--id", "dialog-1", "--path", file}, func(*cliConfig) sessionOpener {
 		return func(context.Context) (*perfuncted.Session, error) {
 			return pftest.New(nil, in, mgr, &pftest.Clipboard{Text: "original"}), nil

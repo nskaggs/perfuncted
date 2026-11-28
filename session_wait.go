@@ -715,6 +715,12 @@ func windowClosed(target *windowState) Condition {
 				ctx,
 				target.id.native,
 			)
+			if ctx.Err() != nil {
+				return false, ctx.Err()
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return false, err
+			}
 			if errors.Is(err, ErrWindowNotFound) {
 				return true, nil
 			}
@@ -723,6 +729,9 @@ func windowClosed(target *windowState) Condition {
 		func(session *sessionCore) error {
 			if target == nil || target.id.session == nil {
 				return ErrNilSession
+			}
+			if target.id.native == "" {
+				return ErrInvalidArgument
 			}
 			if target.id.session != session {
 				return fmt.Errorf("perfuncted: window belongs to another session: %w", ErrInvalidArgument)

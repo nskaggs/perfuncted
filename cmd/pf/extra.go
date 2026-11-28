@@ -494,9 +494,6 @@ func (s *scriptRunner) execInputType(lineNo int, toks []string) error {
 	if stdin {
 		args = nil
 	}
-	if len(args) == 1 && strings.HasPrefix(args[0], "--window") {
-		return fmt.Errorf("script line %d: targeted input flags are not supported in workflows", lineNo)
-	}
 	text, err := readKeyboardText(s.in, args, stdin)
 	if err != nil {
 		return fmt.Errorf("script line %d: input requires exactly one text argument or --stdin: %w", lineNo, err)

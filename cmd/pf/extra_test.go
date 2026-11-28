@@ -802,3 +802,19 @@ func TestWorkflowCommandLocalCancellationFails(t *testing.T) {
 		})
 	}
 }
+
+func TestScriptLiteralWindowFlagPrefixIsData(t *testing.T) {
+	runner, input, _, _ := newScriptFixture(t)
+	if err := runner.run(strings.NewReader("input type '--window-example'\n")); err != nil {
+		t.Fatal(err)
+	}
+	if len(input.Calls) != 1 || input.Calls[0] != "type-literal:--window-example" {
+		t.Fatalf("literal changed: %v", input.Calls)
+	}
+	if err := runner.run(strings.NewReader("input type 'text' --window 'Editor'\n")); err == nil {
+		t.Fatal("unsupported workflow targeting accepted")
+	}
+	if len(input.Calls) != 1 {
+		t.Fatal("unsupported workflow targeting dispatched")
+	}
+}
